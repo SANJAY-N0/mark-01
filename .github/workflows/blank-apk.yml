@@ -1,0 +1,51 @@
+name: Build EasyDial APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: easydial
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Create Android platform files if missing
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name easydial .
+            rm -f test/widget_test.dart
+          fi
+
+      - name: Add contacts permission and dialler query
+        run: |
+          python3 - << 'PY'
+          import re, pathlib
+          p = pathlib.Path("android/app/src/main/AndroidManifest.xml")
+          x = p.read_text()
+          if "READ_CONTACTS" not in x:
+              x = x.replace("<application", '<uses-permission android:name="android.permission.READ_CONTACTS" />\n    <application', 1)
+          if "android.intent.action.DIAL" not in x:
+              x = x.replace("</manifest>", '    <queries>\n        <intent>\n            <action android:name="android.intent.action.DIAL" />\n            <data android:scheme="tel" />\n        </intent>\n    </queries>\n</manifest>')
+          x = re.sub(r'android:label="[^"]*"', 'android:label="EasyDial"', x, count=1)
+          p.write_text(x)
+          PY
+
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: easydial-release-apk
+          path: easydial/build/app/outputs/flutter-apk/app-release.apk
